@@ -1,0 +1,123 @@
+( 6	 8  12  15 17)
+( 20 25 30 35 40)
+
+1					
+"SK50"				
+50					
+"スクーター"		
+1					
+1					
+75					
+75					
+"初心者向け"		
+180					
+"BikeImage/Bike01.bmp"
+"H_bike_1-1.x"
+"bike_1-1.x"
+(0.900 1.600 1.000)
+(0.000 1.270 0.020)	
+""
+"Engine.050.wav"
+"CellMotor.050.wav"	
+"Frame2_bike_1_meter_Layer1"
+2
+"TL125"	
+125	
+"オフロード"
+2		
+2		
+100		
+100		
+"幅広"
+160		
+"BikeImage/Bike02.bmp"
+"h_bike_2-1.x"
+"bike_2-1.x"
+(1.300 1.800 1.000)	
+(0.000 1.265 0.005)	
+""					
+"Engine.050.wav"	
+"CellMotor.125.wav"	
+"Frame2_bike_1_meter_Layer1"
+
+3	
+"SRD250"	
+250			
+"ツーリング"
+4			
+3			
+140			
+140			
+"スマート"	
+120			
+"BikeImage/Bike03.bmp"
+"H_bike_3-1.x"		
+"bike_3-1.x"			
+(1.200 1.800 1.000)	
+(0.000 1.250 -0.200)
+""					
+"Engine.250.wav"	
+"CellMotor.250.wav"	
+"Frame1_bike_1_meter"
+
+4     
+"SW400"    
+400     
+"ビックスクーター" 
+3    
+5    
+160    
+160    
+"ブレーキ性能" 
+80
+"BikeImage/Bike04.bmp" 
+"h_bike_4-1.x"   
+"bike_4-1.x"   
+(1.700 2.200 1.000) 
+(0.002 1.400 -0.357)
+""     
+"Engine.750.wav" 
+"CellMotor.400.wav" 
+"Frame2_bike_1_meter_Layer1"
+
+5					
+"MAX1000"			
+1000				
+"モンスター"    	
+5					
+5					
+180					
+180 				
+"幅広"				
+60					
+"BikeImage/Bike05.bmp"
+"h_bike_5-1.x"		
+"bike_5-1.x"		
+(2.000 2.200 1.000)	
+(0.000 1.325 -0.290)
+""					
+"Engine.750.wav"	
+"CellMotor.750.wav"	
+"Frame2_bike_1_meter_Layer1"
+
+6					
+"Unknown"   		
+0					
+"????????"			
+1					
+1					
+50					
+100 				
+"未来の乗り物？"	
+180					
+"BikeImage/Bike01.bmp"	
+"H_bike_6-1.x"			
+"bike_6-1.x"			
+(0.50 0.700 1.000)		
+(0.0  1.330 0.100)		
+""						
+"Engine.050.wav"		
+"CellMotor.050.wav"		
+"Frame2_bike_1_meter_Layer1"
+
+-1

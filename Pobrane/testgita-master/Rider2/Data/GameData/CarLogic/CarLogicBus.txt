@@ -1,0 +1,278 @@
+%=====================================================================
+%
+% バス用規則
+% ※ベースは「安全運転」
+%
+%=====================================================================
+
+% 異常系共通規則
+include('Common/CarLogic_Emergency.txt').
+
+% 信号共通規則
+include('Common/CarLogic_Signal.txt').
+
+% ウインカー共通規則
+include('Common/CarLogic_Winker.txt').
+
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% バス停停車
+% 前方60mにバス停があって、かつそれが「止まるべき」であれば、そこへ停
+% 車しようとする。
+%
+higherJudgement(stopAtBusStop) :-
+	not(memorizedTerm(busStop, _)),
+	busStop(Self, 60, BusStop),
+	busStopToStop(BusStop),
+	memorize(busStop, BusStop).
+
+%
+% バス停から出発
+% ランプが消えている（＝乗り降り完了、ドアクローズ済み）なら出発。
+%
+higherJudgement(leaveFromBusStop) :-
+	memorizedTerm(busStop, BusStop),
+	not(busStopLampOn(Self)),
+	unmemorize(busStop).
+
+%
+% バス停うっかり通過
+% 停車せずにうっかり通り過ぎたらなかったことにする
+%
+higherJudgement(passingBusStop) :-
+	memorizedTerm(busStop, BusStop),
+	locateOnY(Self, BusStop, rear),
+	unmemorize(busStop).
+
+
+%
+% 車線変更：車線変更完了
+% 移動先車線とのずれが1.2m以下であれば車線変更完了
+%
+higherJudgement(finishLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	distance(LaneToGo, DistanceToLane),
+	less(DistanceToLane, 1.2),
+	unmemorize(laneToGo).
+
+%
+% 車線変更：最左車線への移動
+% 左車線へ移動可能であれば、いつでも左車線へ移動する（バスレーン？）
+%
+higherJudgement(laneChange) :-
+	not(memorizedTerm(laneToGo, _)),
+	lane(Self, left, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+	memorize(laneToGo, Lane).
+
+%
+% 車線変更：環境物の回避
+% 必要に応じて、右車線に対する車線変更を行う。ただしバス停に止まろうと
+% している場合は右車線への移動は行わないようにする（バス停から遠ざかる
+% ので）
+%
+higherJudgement(laneChange) :-
+	not(memorizedTerm(laneToGo, _)),
+	not(memorizedTerm(busStop, _)),
+	needToChangeLane(_),
+	lane(Self, right, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+	memorize(laneToGo, Lane).
+
+%
+% needToChangeLane(_)
+% 車線変更の必要がある。
+%
+% 車線変更する必要があるかどうかは、前方30m範囲内に自車の通常走行速度よ
+% り10km/h以上遅い環境物が存在するかどうかで判断する。
+% 変数は使わない、というか変数0の複合項が作れないのでダミーで置いてある
+% だけ (;´Д`)
+%
+needToChangeLane(_) :-
+	ambientObject(CurrentLane, 30, 0, Object),
+	normalDriveSpeed(NormalDriveSpeed),
+	absoluteSpeedY(Object, ObjectSpeed),
+	minus(NormalDriveSpeed, ObjectSpeed, SpeedDiff),
+	less(10, SpeedDiff).
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 車線変更：車線変更実行
+% 車線変更をやろうとは思っても移動先が開いてなくて移動できないこともあ
+% ったりするので、本当に移動先への実行を行うかどうか判断する。また移動
+% を実行するときにはウインカーを十分な時間出しているかどうかも判断に使
+% われる。
+%
+moveJudgement(doLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	locateOn(LaneToGo, Direction),
+	winker(Self, Direction, WinkerTime),
+	winkerTimeToChangeLane(WinkerTimeToChangeLane),
+	less(WinkerTimeToChangeLane, WinkerTime),
+	not(ambientObject(LaneToGo, 3, 3, _)).
+
+
+%---------------------------------------------------------------------
+%
+% ハンドル行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% 車線変更：車線変更
+% 車線変更を実行しようとしている場合は、移動先車線とのずれを補正する方
+% 向への移動を行う。
+%
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(doLaneChange),
+	memorizedTerm(laneToGo, Lane),
+	locateOn(Lane, Direction),
+	distance(Lane, DistanceToLane),
+	maxMovePerformance(Performance),
+	limitedSignedValue(DistanceToLane, Performance, Distance).
+
+
+%---------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% バス停での停車
+%	停止対象バス停の15m手前まで近づいたら、停車できるように
+%	速度を調整する。
+%
+actionAcceleration(Accel) :-
+	memorizedTerm(busStop, BusStop),
+	distanceY(Self, BusStop, Distance),
+	less(Distance, 15),
+	accelerationToStop(Self, BusStop, Accel).
+
+
+% 速度調整共通規則
+include('Common/CarLogic_SpeedAdjustment.txt').
+
+% 正常系共通規則
+include('Common/CarLogic_Normal.txt').
+
+
+%---------------------------------------------------------------------
+%
+% ドア開閉行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% ドアオープン
+%	バス停で（ほぼ）停車状態になったらドアを開く
+%
+actionDoor(open) :-
+	memorizedTerm(busStop, BusStop),
+	doorState(Self, closed),
+	absoluteSpeedY(Self, Speed),
+	less(Speed, 1.0),
+	busStopToStop(BusStop).
+
+%
+% ドアクローズ
+%	客の乗り降りがすべて完了したら閉じる
+%
+actionDoor(close) :-
+	memorizedTerm(busStop, BusStop),
+	doorState(Self, opened),
+	not(passengerWhoGetOffExist(Self, BusStop)),
+	not(passengerWhoGetOnExist(BusStop)).
+
+%
+% 不要なときは閉じるように
+%
+actionDoor(close) :-
+	not(doorState(Self, closed)),
+	not(memorizedTerm(busStop, _)).
+
+
+%---------------------------------------------------------------------
+%
+% 固有規則
+%
+%---------------------------------------------------------------------
+
+%
+% 乗客の乗り降りが完了し、ドアが閉まったらランプを消す
+%
+actionSpecific(turnOffBusStopLamp) :-
+	busStopLampOn(Self),
+	memorizedTerm(busStop, BusStop),
+	doorState(Self, closed),
+	not(passengerWhoGetOffExist(Self, BusStop)),
+	not(passengerWhoGetOnExist(BusStop)).
+
+%
+% 普段は消しておく
+%
+actionSpecific(turnOffBusStopLamp) :-
+	not(memorizedTerm(busStop, _)).
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則
+%
+%---------------------------------------------------------------------
+
+%
+% busStopToStop(BusStop)
+%	BusStopは、止まるべきバス停である。
+%
+%	止まるべきかどうかは乗る客／降りる客いずれかがいるかで判
+%	定する
+%
+busStopToStop(BusStop) :-
+	passengerWhoGetOffExist(Self, BusStop).
+
+busStopToStop(BusStop) :-
+	passengerWhoGetOnExist(BusStop).
+
+
+%---------------------------------------------------------------------
+%
+%	共通規則用パラメータ
+%
+%---------------------------------------------------------------------
+
+%
+% normalDriveSpeed(Speed)
+% 通常走行速度はSpeedである
+% - バス停に止まろうとしている場合は30km/hまで落とす
+% - 普通は制限速度
+%
+normalDriveSpeed(30) :-
+	memorizedTerm(busStop, _).
+
+normalDriveSpeed(Speed) :-
+	speedLimit(Speed).
+
+%
+% winkerTimeToChangeLane(Time)
+% 車線変更をする前に、ウインカーをTimeだけ出しておかなければならない。
+%
+winkerTimeToChangeLane(3000). % 3秒

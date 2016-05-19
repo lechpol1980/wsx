@@ -1,0 +1,71 @@
+
+%=====================================================================
+%
+% 環境車制御規則（演出用）サンプル
+%	この規則ファイルは、演出用の環境車の制御用として、「最左車線を走ら
+%	せない」動作をさせることを目的としている。
+%
+%	全体としては以下のような動作をする。
+%	- 最左車線以外の車は、制限速度で直進するだけ
+%	- 最左車線の場合
+%	　-- バイク前方にいる場合は制限速度で直進するだけ
+%	　-- バイク後方にいる場合は停車させる
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+%	速度系判断規則
+%
+%---------------------------------------------------------------------
+
+% 最左車線の速度調整
+%	最左車線かつバイクの後方を走っている場合は、邪魔にならないように停
+%	車する。
+speedJudgement(stop) :-
+	not(lane(Self, left, _)),
+	playerBike(Bike),
+	position(Bike, _, BikeY),
+	position(Self, _, SelfY),
+	less(SelfY, BikeY).
+
+
+%---------------------------------------------------------------------
+%
+%	ハンドル行動決定規則
+%
+%---------------------------------------------------------------------
+
+% 正常系
+%	まあ車線に沿って走る程度
+actionWheel(Direction, MoveDistance) :-
+	distance(CurrentLane, Distance),
+	less(0.1, Distance),
+	locateOn(CurrentLane, Direction),
+	maxMovePerformance(MaxPerformance),
+	multiply(MaxPerformance, 0.6, NormalMaxPerformance),
+	min(Distance, NormalMaxPerformance, MoveDistance).
+
+
+%---------------------------------------------------------------------
+%
+%	アクセル／ブレーキ行動決定規則
+%
+%---------------------------------------------------------------------
+
+actionAcceleration(Accel) :-
+	driveSpeed(DriveSpeed),
+	absoluteSpeedY(Self, Speed),
+	minus(DriveSpeed, Speed, SpeedDiff),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(SpeedDiff, MaxAccel, Accel).
+
+%
+% driveSpeed(DriveSpeed)
+%	走行速度はDriveSpeedである。
+%
+driveSpeed(0) :-
+	mySpeedJudgement(stop).
+
+driveSpeed(DriveSpeed) :-
+	speedLimit(DriveSpeed).

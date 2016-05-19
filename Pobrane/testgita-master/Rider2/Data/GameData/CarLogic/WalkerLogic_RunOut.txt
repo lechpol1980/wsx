@@ -1,0 +1,84 @@
+%=====================================================================
+%
+% 飛び出し歩行者規則
+%
+% - 隙を見て飛び出す（信号は関係なし）
+% - 横から車がきても気にしない
+% - 前に進めない場合は立ち止まる
+%
+% memorizeする内容
+% - sidewalkToGo	移動先歩道
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+% ここでは初期化を行う。
+%
+%---------------------------------------------------------------------
+
+% 移動先歩道がメモられていればきっと初期化完了済み
+higherJudgement(_) :-
+	memorizedTerm(sidewalkToGo, _).
+
+higherJudgement(initialize) :-
+	% 車が来なければスタート
+	not(ambientObject(Self, 0, 10, _)),
+	% 移動先歩道
+	directionToGo(Self, DirectionToGo),
+	sidewalk(Self, DirectionToGo, SidewalkToGo),
+	memorize(sidewalkToGo, SidewalkToGo).
+
+%
+% directionToGo(Walker, Direction)
+% Walkerの移動する（横断する）方向はDirectionである
+%
+directionToGo(Self, left) :-
+	sidewalk(Self, right, RightSidewalk),
+	nearestSidewalk(Self, RightSidewalk).
+
+directionToGo(Self, right).
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+% ここでは以下のいずれの行動を取るかを決定する。
+% - 横断完了
+% - 停止
+% - 横断
+%
+%---------------------------------------------------------------------
+
+% 移動先歩道のすぐそばまできたやつはもう何もしない
+moveJudgement(finishCrossing) :-
+	memorizedTerm(sidewalkToGo, SidewalkToGo),
+	distance(SidewalkToGo, Distance),
+	less(Distance, 1).
+
+% 移動しようとしているところに何かいる場合は止まる
+moveJudgement(stopCrossing) :-
+	ambientObject(CurrentLane, 0.5, 0.5, _).
+
+% 多分横断してもいい
+moveJudgement(crossing).
+
+
+%---------------------------------------------------------------------
+%
+% ハンドル行動規則
+% ハンドルじゃないけど
+%
+%---------------------------------------------------------------------
+
+% 横断
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(crossing),
+	% 目標歩道へ向かって一直線
+	memorizedTerm(sidewalkToGo, SidewalkToGo),
+	locateOn(SidewalkToGo, Direction),
+	% 可能な限り急いで
+	distance(SidewalkToGo, DistanceX),
+	maxMovePerformance(MaxAccel),
+	limitedSignedValue(DistanceX, MaxAccel, Distance).

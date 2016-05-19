@@ -1,0 +1,146 @@
+%=====================================================================
+%
+% 車線変更関連共通規則
+%
+% 環境車制御のうち、前方の環境車／環境物を回避するための車線変更に関す
+% る共通の規則。
+%
+% この共通規則を使用する場合、以下の条件が適用される。
+%
+% □前条件
+% ・ウインカーを出し始めてから車線変更を開始するまでに必要な時間を、
+% 　- winkerTimeToChangeLane(Time)
+% 　で問い合わせることが出来る必要がある。
+%
+% □後条件
+% ・車線変更を判断した場合、"laneToGo"という名前で移動先車線がメモされ
+% 　る。
+%
+%======================================================================
+
+%----------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%----------------------------------------------------------------------
+
+%
+% 車線変更完了
+% 移動先車線とのずれが0.4m以下であれば車線変更完了
+%
+higherJudgement(finishLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	distance(LaneToGo, DistanceToLane),
+	less(DistanceToLane, 0.4),
+	unmemorize(laneToGo).
+
+%
+% 車線変更中断
+% 車線変更の必要がなくなった（＝遅い物がいなくなった）ら車線変更を中断
+% する。
+%
+higherJudgement(cancelLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	not(needToChangeLane(_)),
+	unmemorize(laneToGo).
+
+%
+% 車線変更中断（信号）
+% 赤信号付近では車線変更しない。
+%
+higherJudgement(cancelLaneChange) :-
+	existRedSignal(70),
+	unmemorize(laneToGo).
+
+%
+% 環境物の回避
+% 必要に応じて、移動可能車線に対する車線変更を行う。
+%
+higherJudgement(laneChange) :-
+	not(memorizedTerm(laneToGo, _)),
+	needToChangeLane(_),
+	movableLane(MovableLane),
+	memorize(laneToGo, MovableLane).
+
+%
+% needToChangeLane(_)
+% 車線変更の必要がある。
+%
+% 車線変更する必要があるかどうかは、前方30m範囲内に自車の通常走行速度よ
+% り10km/h以上遅い環境物が存在するかどうかで判断する。
+% 変数は使わない、というか変数0の複合項が作れないのでダミーで置いてある
+% だけ (;´Д`)
+%
+needToChangeLane(_) :-
+	ambientObject(CurrentLane, 30, 0, Object),
+	normalDriveSpeed(NormalDriveSpeed),
+	absoluteSpeedY(Object, ObjectSpeed),
+	minus(NormalDriveSpeed, ObjectSpeed, SpeedDiff),
+	less(10, SpeedDiff).
+
+%
+% movableLane(Lane)
+%	Laneは移動可能な車線である
+%
+movableLane(Lane) :-
+	lane(Self, right, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+
+movableLane(Lane) :-
+	lane(Self, left, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+
+%
+% existRedSignal(Distance)
+% 自車前方Distanceより近くに、赤信号がある。
+%
+existRedSignal(Distance) :-
+	signal(Self, Distance, Signal),
+	signalState(Signal, red).
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 車線変更実行
+% 車線変更をやろうとは思っても移動先が開いてなくて移動できないこともあ
+% ったりするので、本当に移動先への実行を行うかどうか判断する。また移動
+% を実行するときにはウインカーを十分な時間出しているかどうかも判断に使
+% われる。
+%
+moveJudgement(doLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	locateOn(LaneToGo, Direction),
+	winker(Self, Direction, WinkerTime),
+	winkerTimeToChangeLane(WinkerTimeToChangeLane),
+	less(WinkerTimeToChangeLane, WinkerTime),
+	not(ambientObject(LaneToGo, 3, 3, _)).
+
+
+%----------------------------------------------------------------------
+%
+% ハンドル行動決定規則
+%
+%----------------------------------------------------------------------
+
+%
+% 車線変更
+% 車線変更を実行しようとしている場合は、移動先車線とのずれを補正する方
+% 向への移動を行う。
+%
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(doLaneChange),
+	memorizedTerm(laneToGo, Lane),
+	locateOn(Lane, Direction),
+	distance(Lane, DistanceToLane),
+	limitedWheelByPerformance(DistanceToLane, 0.9, Distance).

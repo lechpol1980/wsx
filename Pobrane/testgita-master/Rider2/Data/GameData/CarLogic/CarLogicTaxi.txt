@@ -1,0 +1,306 @@
+%=====================================================================
+%
+% タクシー用規則
+% とりあえず標準的な通常車規則をベースに、タクシーとして特殊規則を追加
+% する。
+%
+%=====================================================================
+
+% 異常系共通規則
+include('Common/CarLogic_Emergency.txt').
+
+% 信号共通規則
+include('Common/CarLogic_Signal.txt').
+
+% ウインカー共通規則
+include('Common/CarLogic_Winker.txt').
+
+% 灰落とし共通規則
+include('Common/CarLogic_TapAsh.txt').
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 客乗せ
+% 自車前方100mの範囲に乗せられそうな客がいれば、その客を乗せようとする。
+%
+higherJudgement(pickupVisitor) :-
+	not(memorizedTerm(visitor, _)),
+	emptyTaxi(Self),
+	taxiVisitor(Self, 100, Visitor),
+	pickableVisitor(Visitor),
+	memorize(visitor, Visitor).
+
+%
+% うっかり客通過
+% 客を通り過ぎてしまったら、見なかったことにする。通り過ぎたかどうかの
+% 判定は「客の前方1.6mより先に言ったかどうか」で判定することにする。
+%
+higherJudgement(passingVisitor) :-
+	memorizedTerm(visitor, Visitor),
+	forward(Self, Visitor, 1.6, Pos),
+	locateOnY(Self, Pos, rear),
+	unmemorize(visitor).
+
+%
+% 客乗せ完了
+% 客を乗せて、ドアを閉め終われば完了
+%
+higherJudgement(finishPickupVisitor) :-
+	memorizedTerm(visitor, _),
+	doorState(Self, closed),
+	not(emptyTaxi(Self)),
+	unmemorize(visitor).
+
+%
+% 車線変更：車線変更完了
+% 移動先車線とのずれが1.2m以下であれば車線変更完了
+%
+higherJudgement(finishLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	distance(LaneToGo, DistanceToLane),
+	less(DistanceToLane, 1.2),
+	unmemorize(laneToGo).
+
+%
+% 車線変更中断
+% 車線変更の必要がなくなった（＝遅い物がいなくなった）ら車線変更を中断
+% する。ただし客を乗せようとしている場合は歩道側に移動することが目的の
+% ため、遅い物がそもそも前方にいない。よってこの場合に車線変更を中断し
+% てはいけない。
+%
+higherJudgement(cancelLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	not(memorizedTerm(visitor, _)),
+	not(needToChangeLane(_)),
+	unmemorize(laneToGo).
+
+%
+% 最左車線への移動
+% 客を乗せようとしていて、かつ左車線へ移動可能であれば左車線へ移動する。
+%
+higherJudgement(laneChange) :-
+	memorizedTerm(visitor, _),
+	lane(Self, left, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)),
+	memorize(laneToGo, Lane).
+
+%
+% 環境物の回避
+% 必要に応じて、移動可能車線に対する車線変更を行う。
+%
+higherJudgement(laneChange) :-
+	not(memorizedTerm(laneToGo, _)),
+	needToChangeLane(_),
+	movableLane(MovableLane),
+	memorize(laneToGo, MovableLane).
+
+%
+% needToChangeLane(_)
+% 車線変更の必要がある。
+%
+% 車線変更する必要があるかどうかは、前方30m範囲内に自車の通常走行速度よ
+% り10km/h以上遅い環境物が存在するかどうかで判断する。
+% 変数は使わない、というか変数0の複合項が作れないのでダミーで置いてある
+% だけ (;´Д`)
+%
+needToChangeLane(_) :-
+	ambientObject(CurrentLane, 30, 0, Object),
+	normalDriveSpeed(NormalDriveSpeed),
+	absoluteSpeedY(Object, ObjectSpeed),
+	minus(NormalDriveSpeed, ObjectSpeed, SpeedDiff),
+	less(10, SpeedDiff).
+
+%
+% movableLane(Lane)
+% Laneは移動可能な車線である
+%
+% 客を乗せようとしている場合は右車線への移動は行わないようにする（遠ざ
+% かるから）
+%
+movableLane(Lane) :-
+	not(memorizedTerm(visitor, _)),
+	lane(Self, right, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+
+movableLane(Lane) :-
+	lane(Self, left, Lane),
+	sameDirection(Self, Lane),
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	not(ambientObject(Lane, Gap, Gap, _)).
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 車線変更実行
+% 車線変更をやろうとは思っても移動先が開いてなくて移動できないこともあ
+% ったりするので、本当に移動先への実行を行うかどうか判断する。また移動
+% を実行するときにはウインカーを十分な時間出しているかどうかも判断に使
+% われる。
+%
+moveJudgement(doLaneChange) :-
+	memorizedTerm(laneToGo, LaneToGo),
+	locateOn(LaneToGo, Direction),
+	winker(Self, Direction, WinkerTime),
+	winkerTimeToChangeLane(WinkerTimeToChangeLane),
+	less(WinkerTimeToChangeLane, WinkerTime),
+	not(ambientObject(LaneToGo, 3, 3, _)).
+
+
+%----------------------------------------------------------------------
+%
+% ハンドル行動決定規則
+%
+%----------------------------------------------------------------------
+
+%
+% 車線変更
+% 車線変更を実行しようとしている場合は、移動先車線とのずれを補正する方
+% 向への移動を行う。
+%
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(doLaneChange),
+	memorizedTerm(laneToGo, Lane),
+	locateOn(Lane, Direction),
+	distance(Lane, DistanceToLane),
+	maxMovePerformance(Performance),
+	limitedSignedValue(DistanceToLane, Performance, Distance).
+
+
+%---------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% 客乗せ
+% 乗せようとしている客の手前12mまで近づいたら、客の位置の1.2m先で停止す
+% るように速度を調整する。
+%
+actionAcceleration(Accel) :-
+	memorizedTerm(visitor, Visitor),
+	not(lane(Self, left, _)),
+	position(Visitor, _, VisitorY),
+	distanceY(Self, VisitorY, Distance),
+	less(Distance, 12),
+	forward(Self, VisitorY, 1.2, StopPoint),
+	accelerationToStop(Self, StopPoint, Accel).
+
+
+% 速度調整共通規則
+include('Common/CarLogic_SpeedAdjustment.txt').
+
+% 正常系共通規則
+include('Common/CarLogic_Normal.txt').
+ 
+
+%---------------------------------------------------------------------
+%
+% ドア開閉行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% ドアオープン
+% 客を乗せようとしている状態で、客の近く／最左車線／ドアクローズ状態で
+% 停車していればドアを開く。
+%
+actionDoor(open) :-
+	memorizedTerm(visitor, Visitor),
+	% ドア状態
+	doorState(Self, closed),
+	% 速度が十分遅い？
+	absoluteSpeedY(Self, Speed),
+	less(Speed, 2.0),
+	% 客の近くに来ている？
+	distanceY(Self, Visitor, Distance),
+	less(Distance, 5),
+	% 最左車線にいる？
+	not(lane(Self, left, _)).
+
+%
+% ドアクローズ
+% 客を乗った状態でドアが開いていれば、閉じる。
+%
+actionDoor(close) :-
+	memorizedTerm(visitor, _),
+	doorState(Self, opened),
+	not(emptyTaxi(Self)).
+
+%
+% 不要なときは閉じるように
+%
+actionDoor(close) :-
+	not(doorState(Self, closed)),
+	not(memorizedTerm(visitor, _)).
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則
+%
+%---------------------------------------------------------------------
+
+%
+% pickableVisitor(Visitor)
+% Visitorは自分が乗せることのできると判断される客である。
+%
+% 乗せることができるという判断は以下のようにして行う。
+% - 最左車線にいれば乗せれる
+% - 最左車線にいない場合は、20m以上離れている必要がある。
+% それより近いと最左車線への変更が間に合わないと考えられるため
+%
+pickableVisitor(_) :-
+	not(lane(Self, left, _)).
+
+pickableVisitor(Visitor) :-
+	distanceY(Self, Visitor, Distance),
+	less(20, Distance).
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則用パラメータ
+%
+%---------------------------------------------------------------------
+
+%
+% normalDriveSpeed(Speed)
+% 通常走行速度はSpeedである。
+% - 客を乗せようとしている場合は徐々に速度を落とす
+% - 普通は制限速度+5km/h
+%
+normalDriveSpeed(30) :-
+	memorizedTerm(visitor, Visitor),
+	distanceY(Self, Visitor, Distance),
+	less(30, Distance).
+
+normalDriveSpeed(20) :-
+	memorizedTerm(visitor, _).
+
+normalDriveSpeed(Speed) :-
+	speedLimit(SpeedLimit),
+	plus(SpeedLimit, 5, Speed).
+
+%
+% winkerTimeToChangeLane(Time)
+%	車線変更をする前に、ウインカーをTimeだけあらかじめ出しておかなけれ
+%	ばならない。
+%
+winkerTimeToChangeLane(2000).	% 2秒

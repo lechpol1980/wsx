@@ -1,0 +1,115 @@
+%=====================================================================
+%
+% ゴール地点でのバイク路肩寄せ規則
+%
+% - 左右の近い方の歩道そばまで寄せる
+% - ゴール地点のある程度手前(30m)までは30km/hで徐行運転する
+% - あとはゴール地点で停車するように徐々に減速する
+%
+% memorizeする内容
+% - directionToGo 移動先方向（近い方に寄せる）
+% - laneToGo 移動先車線
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+% ここでは初期化を行う。
+%
+%---------------------------------------------------------------------
+
+higherJudgement(_) :-
+	memorizedTerm(directionToGo, _).
+
+% 移動方向を決める
+higherJudgement(initialize) :-
+	directionToGo(DirectionToGo),
+	memorize(directionToGo, DirectionToGo).
+
+%
+% directionToGo(DirectionToGo)
+% （路肩に寄せる）方向はDirectionToGoである
+%
+directionToGo(left) :-
+	sidewalk(Self, left, Sidewalk),
+	nearestSidewalk(Self, Sidewalk).
+
+directionToGo(right).
+
+
+%------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%------------------------------------------------------------
+
+% 移動方向側に車線があれば、それを移動先とする
+moveJudgement(laneChange) :-
+	memorizedTerm(directionToGo, DirectionToGo),
+	lane(Self, DirectionToGo, Lane),
+	memorize(laneToGo, Lane).
+
+% 移動先車線に来たらそれを解除する
+moveJudgement(finishLaneChange) :-
+	memorizedTerm(laneToGo, Lane),
+	lane(Self, current, Lane),
+	unmemorize(laneToGo).
+
+
+%------------------------------------------------------------
+%
+% ハンドル行動決定規則
+%
+%------------------------------------------------------------
+
+% 移動先車線があれば、その車線中心位置との差を縮める方向への
+% 移動を行う
+actionWheel(Direction, MoveDistance) :-
+	memorizedTerm(laneToGo, Lane),
+	memorizedTerm(directionToGo, Direction),
+	distance(Lane, Distance),
+	maxMovePerformance(MaxPerformance),
+	min(Distance, MaxPerformance, MoveDistance).
+
+
+% 移動先車線がない（＝歩道すぐそばにいる）、かつその車線の歩
+% 道から遠い側にいる場合は歩道側へ移動する（ここまで来たらも
+% っとゆっくり移動してもいいかも）
+actionWheel(Direction, MoveDistance) :-
+	memorizedTerm(directionToGo, Direction),
+	locateOn(CurrentLane, Direction),
+	maxMovePerformance(MoveDistance).
+
+% 移動先車線がない（＝歩道すぐそばにいる）、かつその車線の歩
+% 道から近い側にいる場合は、車線中心から一定距離(この場合0.6m)
+% の位置へ移動、というか中心からの距離が0.6未満なら移動しつづ
+% ける
+actionWheel(Direction, MoveDistance) :-
+	distance(CurrentLane, Distance),
+	less(Distance, 0.6),
+	memorizedTerm(directionToGo, Direction),
+	maxMovePerformance(MoveDistance).
+
+
+%------------------------------------------------------------
+% アクセル／ブレーキ行動決定規則
+%------------------------------------------------------------
+
+% 15m前までは30km/hで徐行運転
+actionAcceleration(Accel) :-
+	goalPosition(Position),
+	locateOnY(Self, Position, front),
+	distanceY(Self, Position, Distance),
+	less(15, Distance),
+	absoluteSpeedY(Self, SpeedY),
+	minus(30, SpeedY, SpeedDiffY),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(SpeedDiffY, MaxAccel, Accel).
+
+% あるY座標で停止する
+actionAcceleration(Accel) :-
+	goalPosition(Position),
+	accelerationToStop(Self, Position, AccelToStop),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(AccelToStop, MaxAccel, Accel).

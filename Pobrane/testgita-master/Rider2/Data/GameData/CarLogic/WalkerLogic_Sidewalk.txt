@@ -1,0 +1,181 @@
+%=====================================================================
+%
+% 歩道歩行者（道路を渡らない人）規則
+%
+% - 前後どちらに歩くかはランダムに決める
+% - 決めた方向にまっすぐ進む
+% - 何か（物、人）あればよける
+% - 一定距離以上歩いたら建物の方へ消える
+%
+% memorizeする内容
+% - directionToGo 歩く方向(front/rear)
+% - startTick 移動開始した時刻。一定時間移動したかどうかの判定に使用す
+% る。
+% - avoidanceDirection 回避するときの左右方向。いったん記憶したらそちら
+% に避けつづける。でもそのうちあきらめる。
+% - avoidanceStartTick 左右回避をはじめた時刻。人同士が同じ方向によけた
+% ときなどに一定時間であきらめさせるために使用する。
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%---------------------------------------------------------------------
+
+% 最初に前後どちらに歩くかを決める、決めたら覚えておいて常にそちらへ歩
+% くようにする。
+
+higherJudgement(init) :-
+	not(memorizedTerm(directionToGo, _)),
+	directionToGo(DirectionToGo),
+	memorize(directionToGo, DirectionToGo),
+	tickCount(Current),
+	memorize(startTick, Current).
+
+directionToGo(front) :- rand(100, Rand), less(Rand, 50).
+directionToGo(rear).
+
+
+% 移動開始した時刻から一定時間経過したら、移動完了（建物の方へ退場）する
+higherJudgement(finishWalking) :-
+	memorizedTerm(startTick, Start),
+	tickCount(Current),
+	minus(Current, Start, ElapsedTime),
+	less(10000, ElapsedTime). % 10秒
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%---------------------------------------------------------------------
+
+% 終わったら退場
+moveJudgement(walkout) :-
+	myHigherJudgement(finishWalking).
+
+% 進行方向10m以内に障害物があれば回避判断
+moveJudgement(avoidance(Obstacle)) :-
+	memorizedTerm(directionToGo, DirectionToGo),
+	searchDistance(DirectionToGo, 10, FrontDistance, RearDistance),
+	obstacle(Self, current, FrontDistance, RearDistance, Obstacle).
+
+% 普通に歩くときは回避のことはもう忘れる
+moveJudgement(_) :-
+	unmemorize(avoidanceDirection),
+	unmemorize(avoidanceStartTick).
+
+
+%---------------------------------------------------------------------
+%
+% 速度系判断規則
+%
+%---------------------------------------------------------------------
+
+% 終わったら退場
+speedJudgement(walkout) :-
+	myHigherJudgement(finishWalking).
+
+% 進行方向5m以内に障害物がなければ前進判断
+speedJudgement(forward) :-
+	memorizedTerm(directionToGo, DirectionToGo),
+	searchDistance(DirectionToGo, 5, FrontDistance, RearDistance),
+	not(obstacle(Self, current, FrontDistance, RearDistance, _)).
+
+
+%---------------------------------------------------------------------
+%
+% ハンドル行動規則
+% ハンドルじゃないけど
+%
+%---------------------------------------------------------------------
+
+% 歩行完了なら左（建物の方）へ
+actionWheel(left, Distance) :-
+	myMoveJudgement(walkout),
+	maxMovePerformance(Distance). % 実際はもうちょい速度を下げる
+
+% なんか来たらよける
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(avoidance(Obstacle)),
+	avoidanceDirection(Obstacle, Direction),
+	maxMovePerformance(Distance).
+
+
+%
+% avoidanceDirection(Obstacle, Direction)
+% 前方に障害物Obstacleが存在する場合に回避する方向はDirectionである。
+%
+
+% 物の場合は常に左（建物の方）へ避ける。こうしておけば川がある場合でも
+% そのままどこか行ってくれる
+avoidanceDirection(Obstacle, left) :-
+	not(isAmbientCar(Obstacle)).
+
+% 方向決まってる＆物じゃない＆時間内→そのまま
+avoidanceDirection(_, Direction) :-
+	memorizedTerm(avoidanceDirection, Direction),
+	memorizedTerm(avoidanceStartTick, Start),
+	tickCount(Current),
+	minus(Current, Start, ElapsedTime),
+	less(ElapsedTime, 500). % 0.5秒だけ方向維持
+
+% あとは方向決めなおし
+avoidanceDirection(_, left) :-
+	rand(100, Rand),
+	less(50, Rand),
+	memorize(avoidanceDirection, left),
+	tickCount(Current),
+	memorize(avoidanceStartTick, Current).
+
+avoidanceDirection(_, right) :-
+	memorize(avoidanceDirection, right),
+	tickCount(Current),
+	memorize(avoidanceStartTick, Current).
+
+
+%---------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動規則
+% アクセルじゃ(ry
+%
+%---------------------------------------------------------------------
+
+% 退場開始したら前後方向は動かない
+actionAcceleration(0) :-
+	mySpeedJudgement(walkout).
+
+% 決めた方向に向かって一定速度で歩くだけ
+actionAcceleration(Accel) :-
+	mySpeedJudgement(forward),
+	absoluteSpeedY(Self, Speed),
+	minus(4, Speed, SpeedDiff),
+	directionSign(Sign),
+	multiply(SpeedDiff, Sign, NonLimitAccel),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(NonLimitAccel, MaxAccel, Accel).
+
+% よく分からないときは動かない方がいい
+actionAcceleration(0).
+
+directionSign(1) :- memorizedTerm(directionToGo, front).
+directionSign(-1).
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則
+%
+%---------------------------------------------------------------------
+
+%
+% searchDistance(Direction, Distance, Front, Rear)
+% 移動方向がDirectionの場合に自分の進行方向に向かってDistanceの距離だ
+% け障害物を検索しようとした場合、前後方向の検索距離として指定する値は
+% Front/Rearになる。
+%
+searchDistance(front, Distance, Front, 0) :- plus(Distance, 0, Front).
+searchDistance(rear, Distance, 0, Rear) :- plus(Distance, 0, Rear).
+

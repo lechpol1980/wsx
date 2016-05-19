@@ -1,0 +1,51 @@
+%=====================================================================
+%
+% 通常運転規則
+% - 制限速度よりちょっと速く走る
+% - それなりに追い越したりする
+%
+%=====================================================================
+
+% 異常系共通規則
+include('Common/CarLogic_Emergency.txt').
+
+% 信号共通規則
+include('Common/CarLogic_Signal.txt').
+
+% 車線変更共通規則
+include('Common/CarLogic_LaneChange.txt').
+
+% 速度調整共通規則
+include('Common/CarLogic_SpeedAdjustment.txt').
+
+% ウインカー共通規則
+include('Common/CarLogic_Winker.txt').
+
+% 灰落とし共通規則
+include('Common/CarLogic_TapAsh.txt').
+
+% 正常系共通規則
+include('Common/CarLogic_Normal.txt').
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則用パラメータ
+%
+%---------------------------------------------------------------------
+
+%
+% normalDriveSpeed(Speed)
+% 通常走行速度はSpeedである。
+%
+
+% 普段は制限速度＋5km/h
+normalDriveSpeed(Speed) :-
+	speedLimit(SpeedLimit),
+	plus(SpeedLimit, 5, Speed).
+
+%
+% winkerTimeToChangeLane(Time)
+% 車線変更をする前に、ウインカーをTimeだけ出しておかなければならない。
+%
+winkerTimeToChangeLane(3000).	% 3秒

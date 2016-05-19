@@ -1,0 +1,20 @@
+#
+# CarLogicTable
+#
+#	環境車制御ファイルテーブル
+
+#共通ファイル
+
+0	"CarLogic01.txt"	#普通
+1	"CarLogic02.txt"	#安全
+2	"CarLogic03.txt"	#荒っぽい
+
+#特別ファイル
+
+100	"BikeLogic_Goal.txt"		#バイクゴール演出
+
+200	"CarLogic_Direction.txt"	#上り車線最左車線走行禁止
+
+300	"CarLogicTaxi.txt"			#タクシー客乗せ
+
+-1								#終了コード

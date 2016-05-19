@@ -1,0 +1,102 @@
+%=====================================================================
+%
+% 正常系共通規則
+% ※この共通規則は他の規則が適用されない場合に実行される前提で作成され
+% ているため、他の全ての規則より後ろにincludeする必要がある。
+%
+% 他の判断が行われない場合のデフォルトで適用される正常系の規則。
+%
+% この共通規則を使用するための条件は以下の通り
+%
+% □前条件
+% ・通常走行速度を、
+% 　- normalDriveSpeed(Speed)
+% 　で問い合わせることが出来る必要がある。
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+% ハンドル行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% 車線内での補正
+% 自車線中心位置と自車位置のずれが0.1m以上あれば、それを補正する方向へ
+% の移動を行う。
+%
+actionWheel(Direction, Distance) :-
+	distance(CurrentLane, DistanceFromLane),
+	less(0.1, DistanceFromLane),
+	locateOn(CurrentLane, Direction),
+	normalMovePerformance(Performance),
+	limitedSignedValue(DistanceFromLane, Performance, Distance).
+
+
+%---------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動決定規則
+%
+%---------------------------------------------------------------------
+
+%
+% 通常走行速度への補正
+% 通常走行速度との差を縮めるように加速／減速を行う。
+%
+actionAcceleration(Accel) :-
+	absoluteSpeedY(Self, Speed),
+	normalDriveSpeed(NormalDriveSpeed),
+	minus(NormalDriveSpeed, Speed, SpeedDiff),
+	normalAccelerationPerformance(Performance),
+	limitedSignedValue(SpeedDiff, Performance, Accel).
+
+
+%---------------------------------------------------------------------
+%
+%	共通規則
+%
+%---------------------------------------------------------------------
+
+%
+% normalMovePerformance(Performance)
+% 通常時の移動量はPerformanceである（最大の40%）
+%
+normalMovePerformance(Performance) :-
+	maxMovePerformance(MaxPerformance),
+	multiply(MaxPerformance, 0.4, Performance).
+
+%
+% normalAccelerationPerformance(Performance)
+% 通常時の加減速量はPerformanceである（最大の40%）
+%
+normalAccelerationPerformance(Performance) :-
+	maxAccelerationPerformance(MaxPerformance),
+	multiply(MaxPerformance, 0.4, Performance).
+
+%
+% vehicularGap(Speed, Gap)
+% 速度Speedで走っているときに取るべき車間距離はGapである
+%
+% ここでは以下のようにして車間距離を決定している。
+%	車間距離[m] = 速度[km/h] / 2 + 車体サイズによる補正
+% 従って速度60km/hで走っている場合は30+補正値mとなる。ただし低速度であ
+% っても最低15mは車間距離を確保する。
+%
+vehicularGap(Speed, Gap) :-
+	less(Speed, 30),
+	vehicularGapAdjustmentBySize(Adjustment),
+	plus(15, Adjustment, Gap).
+
+vehicularGap(Speed, Gap) :-
+	vehicularGapAdjustmentBySize(Adjustment),
+	multiply(Speed, 0.5, SpeedHalf),
+	plus(SpeedHalf, Adjustment, Gap).
+
+%
+% vehicularGapAdjustmentBySize(Adjustment)
+% 車体による車間距離補正値はAdjustmentである。
+%
+vehicularGapAdjustmentBySize(Adjustment) :-
+	objectSize(Self, _, Length),
+	multiply(Length, 0.8, Adjustment).

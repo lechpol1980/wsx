@@ -1,0 +1,160 @@
+%=====================================================================
+%
+% 信号用共通規則
+%
+% 環境車制御のうち、信号に対する共通の規則。
+%
+% この共通規則を使用するためには、以下の条件が成立している必要がある。
+%
+% □前条件
+% ・移動先車線が"laneToGo"と言う名前でメモされている。これは使用するわ
+% 　けではなく、メモ解除のために名前が必要になる。
+% ・正常系のアクセル／ブレーキ行動決定規則から通常走行速度を問い合わせ
+% 　る際に「normalDriveSpeed(X)」の形式で問い合わせる。これは信号待ち
+% 　を使用とする場合の走行速度を指定するために使用される。
+%
+% □後条件
+% ・赤／黄信号での停車を判断した場合、"signalToStop"という名前で停車対
+% 　象信号機がメモされる。
+% ・赤／黄信号での停車を判断した場合、メモされている以下の値は解除され
+% 　る。
+% 　- laneToGo
+%
+%======================================================================
+
+%----------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%----------------------------------------------------------------------
+
+%
+% 青になったら通過
+%
+higherJudgement(finishStoppingAtSignal) :-
+	memorizedTerm(signalToStop, Signal),
+	signalState(Signal, blue),
+	unmemorize(signalToStop).
+
+%
+% うっかり通り過ぎたら走り去る
+%
+higherJudgement(finishPassingRedSignal) :-
+	memorizedTerm(signalToStop, Signal),
+	locateOnY(Self, Signal, rear),
+	unmemorize(signalToStop).
+
+%
+% 信号が変わるまでは止まりつづける
+%
+higherJudgement(stopAtSignal) :-
+	memorizedTerm(signalToStop, _).
+
+%
+% 前方50m以内に黄・赤の信号がある場合停車する
+%
+higherJudgement(stopAtSignal) :-
+	signal(Self, 50, Signal),
+	not(signalState(Signal, blue)),
+	signalStopLinePosition(Signal, StopLinePos),
+	distanceY(Self, StopLinePos, Distance),
+	not(ambientObject(CurrentLane, Distance, 0, _)),
+	memorize(signalToStop, Signal).
+
+
+%----------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%----------------------------------------------------------------------
+
+%
+% 信号停止なら車線変更停止
+%
+moveJudgement(cancelLaneChange) :-
+	myHigherJudgement(stopAtSignal),
+	unmemorize(laneToGo).
+
+
+%----------------------------------------------------------------------
+%
+% 速度系判断規則
+%
+%----------------------------------------------------------------------
+
+%
+% 信号停止を判断した場合、自分の位置によって以下のように速度系の判断を
+% 下す。
+% - 停止線より手前にいれば停止線で止まろうとする。
+% - 停止線から少しはみ出した場合、その場で止まろうとする。はみ出し許容
+% 　範囲は信号の手前12mまでとする
+% - それ以外（かなりはみ出して横断歩道のあたりまで来た）は通常走行、す
+% 　なわち走り去る
+%
+speedJudgement(Judgement) :-
+	myHigherJudgement(stopAtSignal),
+	memorizedTerm(signalToStop, Signal),
+	speedJudgementForSignal(Signal, Judgement).
+
+speedJudgementForSignal(Signal, stopAtSignalStopLine) :-
+	signalStopLinePosition(Signal, StopLinePos),
+	locateOnY(Self, StopLinePos, front).
+
+speedJudgementForSignal(Signal, stopOnTheSpot) :-
+	position(Signal, _, SignalY),
+	forward(Self, SignalY, -12, Pos),
+	locateOnY(Self, Pos, front).
+
+
+%----------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動決定規則
+%
+%----------------------------------------------------------------------
+
+%
+% 停止線で停車なら、それっぽくブレーキを踏む
+%
+actionAcceleration(Accel) :-
+	mySpeedJudgement(stopAtSignalStopLine),
+	memorizedTerm(signalToStop, Signal),
+	signalStopLinePosition(Signal, StopLinePos),
+	distanceY(Self, StopLinePos, Distance),
+	less(Distance, 16),
+	accelerationToStop(Self, StopLinePos, NonLimitedAccel),
+	maxAccelerationPerformance(MaxAccel),
+	multiply(MaxAccel, 0.6, NormalMaxAccel),
+	limitedSignedValue(NonLimitedAccel, NormalMaxAccel, Accel).
+
+%
+% 停止線をはみ出した場合はその場で停車
+%
+actionAcceleration(Accel) :-
+	mySpeedJudgement(stopOnTheSpot),
+	absoluteSpeedY(Self, SpeedY),
+	multiply(SpeedY, -1, NonLimitedAccel),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(NonLimitedAccel, MaxAccel, Accel).
+
+
+%----------------------------------------------------------------------
+%
+% 共通規則
+%
+%----------------------------------------------------------------------
+
+%
+% normalDriveSpeed(Speed)
+% 通常走行速度はSpeedである
+%
+
+% 信号を認識したら少し速度を落とす
+normalDriveSpeed(30) :-
+	memorizedTerm(signalToStop, Signal),
+	signalStopLinePosition(Signal, StopLinePos),
+	distanceY(Self, StopLinePos, Distance),
+	less(30, Distance).
+
+% さらに信号に近づいたら速度もさらに落とす
+normalDriveSpeed(20) :-
+	memorizedTerm(signalToStop, _).

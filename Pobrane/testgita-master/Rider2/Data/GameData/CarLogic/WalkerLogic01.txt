@@ -1,0 +1,285 @@
+%=====================================================================
+%
+% 歩行者規則
+%
+% 基本的には以下のような流れの動きを行う。
+% - まず手近な信号を探して、それを移動目標とする
+% - 信号に向かって近づく
+% - 青になるのを待って、信号が変わったら渡る
+% - 渡り終わったらそのまま進んで建物の方へ消える
+%
+% 歩行者は以下の状態を遷移し、状態に従った動きを行う。
+% - 初期状態
+% - 信号へ接近(approachToSignal)
+% - 信号待ち(waitForLightToChange)
+% - 横断中(crossOver)
+% - 横断完了(finishCrossing)
+% これらの状態は上から下に向かって順に状態遷移する。
+%
+% 各状態では以下のような行動を取る。
+% - 初期状態
+%	-- 移動目標信号を決定する
+% - 信号へ接近
+%	-- 移動目標信号に向かって歩く
+%	-- 歩道の障害物、対向者を避ける
+% - 信号待ち
+%	-- 信号が青になるまで何もしない
+% - 横断中
+%	-- 移動先歩道に向かって歩く
+%	-- 車道内の障害物を避ける
+% - 横断完了
+%	-- 建物に向かって歩きつづける
+%
+% memorizeする内容
+% - state 現在の状態
+% - signal 移動目標信号
+% - directionToGo 歩く方向(front/rear)
+% - avoidanceDirection 回避するときの左右方向。いったん記憶したらそちら
+% に避けつづける。でもそのうちあきらめる。
+% - avoidanceStartTick 左右回避をはじめた時刻。人同士が同じ方向によけた
+% ときなどに一定時間であきらめさせるために使用する。
+%
+%=====================================================================
+
+%---------------------------------------------------------------------
+%
+% 上位判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 初期状態
+%
+
+% 初期状態では、移動目標信号を決定し、"信号接近"に遷移
+higherJudgement(_) :-
+	not(memorizedTerm(state, _)),
+	nearestSignal(Self, 200, Signal),
+	memorize(signal, Signal),
+	signalCrosswalkPosition(Signal, CrosswalkPosition),
+	locateOnY(Self, CrosswalkPosition, DirectionToGo),
+	memorize(directionToGo, DirectionToGo),
+	memorize(state, approachToSignal).
+
+%
+% 信号へ接近(approachToSignal)
+%
+
+% 信号まで十分近づいたら"信号待ち"に遷移
+higherJudgement(_) :-
+	memorizedTerm(state, approachToSignal),
+	memorizedTerm(signal, Signal),
+	signalCrosswalkPosition(Signal, CrosswalkPosition),
+	distanceY(Self, CrosswalkPosition, DistanceY),
+	less(DistanceY, 1.5),
+	memorize(state, waitForLightToChange).
+
+%
+% 信号待ち(waitForLightToChange)
+%
+
+% 横断方向の信号が青なら"横断中"へ遷移する
+higherJudgement(_) :-
+	memorizedTerm(state, waitForLightToChange),
+	memorizedTerm(signal, Signal),
+	signalStateH(Signal, blue),
+	memorize(state, crossOver).
+
+%
+% 横断中(crossOver)
+%
+
+% 移動先歩道のそばまで来たら"横断完了"に遷移する
+higherJudgement(_) :-
+	memorizedTerm(state, crossOver),
+	sidewalk(Self, right, Sidewalk), % 必ず右側が移動先になる
+	distance(Sidewalk, Distance),
+	less(Distance, 2.0),
+	memorize(state, finishCrossing).
+
+
+%---------------------------------------------------------------------
+%
+% 移動系判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 信号へ接近(approachToSignal)
+%
+
+% 進行方向10m以内に障害物があれば回避判断
+moveJudgement(avoidance(Obstacle)) :-
+	memorizedTerm(state, approachToSignal),
+	memorizedTerm(directionToGo, DirectionToGo),
+	searchDistance(DirectionToGo, 10, FrontDistance, RearDistance),
+	obstacle(Self, current, FrontDistance, RearDistance, Obstacle).
+
+% 普通に歩くときは回避のことはもう忘れる
+moveJudgement(_) :-
+	memorizedTerm(state, approachToSignal),
+	unmemorize(avoidanceDirection),
+	unmemorize(avoidanceStartTick).
+
+%
+% 横断中(crossOver)
+%
+
+% 移動しようとしているところに何かいる場合は止まる
+moveJudgement(stopCrossing) :-
+	memorizedTerm(state, crossOver),
+	obstacle(Self, right, 0.3, 0.3, _).
+
+% 障害物がないので渡る
+moveJudgement(crossing) :-
+	memorizedTerm(state, crossOver).
+
+%
+% 横断完了(finishCrossing)
+%
+
+% 建物方向へずっと歩きつづける（退場）
+moveJudgement(walkout) :-
+	memorizedTerm(state, finishCrossing).
+
+
+%---------------------------------------------------------------------
+%
+% 速度系判断規則
+%
+%---------------------------------------------------------------------
+
+%
+% 信号へ接近(approachToSignal)
+%
+
+% 進行方向5m以内に障害物がなければ前進判断
+speedJudgement(forward) :-
+	memorizedTerm(state, approachToSignal),
+	memorizedTerm(directionToGo, DirectionToGo),
+	searchDistance(DirectionToGo, 5, FrontDistance, RearDistance),
+	not(obstacle(Self, current, FrontDistance, RearDistance, _)).
+
+%
+% 横断中(crossOver)
+%
+
+% 横断先に障害物があれば、前後いずれかに回避する
+speedJudgement(avoidanceTo(AvoidDirection)) :-
+	memorizedTerm(state, crossOver),
+	avoidDirection(AvoidDirection).
+
+% avoidDirection(AvoidDirection)
+% 横断先に障害物があるときの前後への回避方向はAvoidDirectionである。
+avoidDirection(front) :- obstacle(Self, right, 0.1, 0.5, _).
+avoidDirection(rear) :- obstacle(Self, right, 0.5, 0.1, _).
+
+
+%---------------------------------------------------------------------
+%
+% ハンドル行動規則
+% ハンドルじゃないけど
+%
+%---------------------------------------------------------------------
+
+% なんか来たらよける
+actionWheel(Direction, Distance) :-
+	myMoveJudgement(avoidance(Obstacle)),
+	avoidanceDirection(Obstacle, Direction),
+	maxMovePerformance(Distance).
+
+% 渡る
+actionWheel(right, Distance) :-
+	myMoveJudgement(crossing),
+	maxMovePerformance(Distance).
+
+% 歩行完了なら右（建物の方）へ
+actionWheel(right, Distance) :-
+	myMoveJudgement(walkout),
+	maxMovePerformance(Distance).
+
+% わかんないときは動かない方がいい
+actionWheel(right, 0).
+
+
+% avoidanceDirection(Obstacle, Direction)
+% 前方に障害物Obstacleが存在する場合に回避する方向はDirectionである。
+
+% 物の場合は常に左（建物の方）へ避ける。こうしておけば川がある場合でも
+% そのままどこか行ってくれる
+avoidanceDirection(Obstacle, left) :-
+	not(isAmbientCar(Obstacle)).
+
+% 方向決まってる＆物じゃない＆時間内→そのまま
+avoidanceDirection(_, Direction) :-
+	memorizedTerm(avoidanceDirection, Direction),
+	memorizedTerm(avoidanceStartTick, Start),
+	tickCount(Current),
+	minus(Current, Start, ElapsedTime),
+	less(ElapsedTime, 500). % 0.5秒だけ方向維持
+
+% あとは方向決めなおし
+avoidanceDirection(_, left) :-
+	rand(100, Rand),
+	less(50, Rand),
+	memorize(avoidanceDirection, left),
+	tickCount(Current),
+	memorize(avoidanceStartTick, Current).
+
+avoidanceDirection(_, right) :-
+	memorize(avoidanceDirection, right),
+	tickCount(Current),
+	memorize(avoidanceStartTick, Current).
+
+
+%---------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動規則
+% アクセルじゃ(ry
+%
+%---------------------------------------------------------------------
+
+% 信号に向かって一定速度で歩く
+actionAcceleration(Accel) :-
+	mySpeedJudgement(forward),
+	memorizedTerm(directionToGo, Direction),
+	accelerationToGo(Direction, Accel).
+
+% 障害物があれば前後に避ける
+actionAcceleration(Accel) :-
+	mySpeedJudgement(avoidanceTo(AvoidDirection)),
+	accelerationToGo(AvoidDirection, Accel).
+
+% わかんないときは動かない方がいい
+actionAcceleration(0).
+
+
+% accelerationToGo(Direction, Accel)
+% Direction(front/rear)へ移動するために指定すべき加速度はAccelである
+
+accelerationToGo(Direction, Accel) :-
+	absoluteSpeedY(Self, Speed),
+	minus(4, Speed, SpeedDiff),
+	directionSign(Direction, Sign),
+	multiply(SpeedDiff, Sign, NonLimitAccel),
+	maxAccelerationPerformance(MaxAccel),
+	limitedSignedValue(NonLimitAccel, MaxAccel, Accel).
+
+directionSign(front, 1).
+directionSign(rear, -1).
+
+
+%---------------------------------------------------------------------
+%
+% 共通規則
+%
+%---------------------------------------------------------------------
+
+% searchDistance(Direction, Distance, Front, Rear)
+% 移動方向がDirectionの場合に自分の進行方向に向かってDistanceの距離だ
+% け障害物を検索しようとした場合、前後方向の検索距離として指定する値は
+% Front/Rearになる。
+searchDistance(front, Distance, Front, 0) :-
+	plus(Distance, 0, Front).
+searchDistance(rear, Distance, 0, Rear) :-
+	plus(Distance, 0, Rear).

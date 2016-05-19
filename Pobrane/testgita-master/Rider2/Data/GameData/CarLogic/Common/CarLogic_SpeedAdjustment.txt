@@ -1,0 +1,62 @@
+%=====================================================================
+%
+% 速度調整関連共通規則
+%
+% 環境車制御のうち、前方の環境車／環境物との追突を避けるための速度／車
+% 間距離調整を行うための共通の規則。
+%
+% この共通規則を使用する場合、以下の条件が適用される。
+%
+% □前条件
+% ・通常走行速度を、以下の形式で問い合わせることが出来る必要がある。
+% 　- normalDriveSpeed(Speed)
+%
+% □後条件
+% ※なし
+%
+%=====================================================================
+
+%----------------------------------------------------------------------
+%
+% 速度系判断規則
+%
+%----------------------------------------------------------------------
+
+%
+% 車間距離調整
+% 速度から決定される目標車間距離より近くに環境物が存在した場合、車間距
+% 離調整のため速度を下げる。
+%
+speedJudgement(slowDown) :-
+	absoluteSpeedY(Self, Speed),
+	vehicularGap(Speed, Gap),
+	ambientObject(CurrentLane, Gap, 0, _).
+
+
+%----------------------------------------------------------------------
+%
+% アクセル／ブレーキ行動決定規則
+%
+%----------------------------------------------------------------------
+
+%
+% 減速
+% 車間距離が詰まったため速度を落とす
+% TODO:車間距離に応じた減速量にする
+%
+actionAcceleration(Accel) :-
+	mySpeedJudgement(slowDown),
+	absoluteSpeedY(Self, Speed),
+	targetSpeedForSlowDown(TargetSpeed),
+	minus(TargetSpeed, Speed, SpeedDiff),
+	limitedAccelByPerformance(SpeedDiff, 1.0, Accel).
+
+%
+% targetSpeedForSlowDown(Speed)
+% 減速する際の目標速度（この速度まで減速する）はSpeedである。
+% 車線変更しようとしている場合は停止してしまうと都合が悪いので、最低限
+% の速度を確保しておく。
+%
+targetSpeedForSlowDown(8) :- myMoveJudgement(doLaneChange).
+targetSpeedForSlowDown(0).
+
